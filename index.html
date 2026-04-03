@@ -1,0 +1,182 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+  <meta charset="UTF-8" />
+  <meta name="viewport" content="width=device-width, initial-scale=1.0, user-scalable=no" />
+  <title>Color Maze — 3D Puzzle Game</title>
+  <meta name="description" content="Roll the ball, paint every tile, solve the maze. A beautiful 3D puzzle game." />
+  <link rel="preconnect" href="https://fonts.googleapis.com">
+  <link rel="preconnect" href="https://fonts.gstatic.com" crossorigin>
+  <link href="https://fonts.googleapis.com/css2?family=Outfit:wght@300;400;600;700;800;900&display=swap" rel="stylesheet">
+  <link rel="icon" type="image/svg+xml" href="data:image/svg+xml,<svg xmlns='http://www.w3.org/2000/svg' viewBox='0 0 100 100'><text y='.9em' font-size='90'>🎨</text></svg>">
+  <link rel="stylesheet" href="/src/style.css">
+  <style>
+    body { background-color: #050b14; color: white; display: none; }
+  </style>
+</head>
+<body>
+  <script>document.body.style.display = "block"; // Prevent FOUC entirely</script>
+  <!-- 3D Canvas will be injected by Three.js -->
+  <div id="game-container"></div>
+
+  <!-- UI Overlays -->
+  <div id="menu-screen" class="screen active">
+    <div class="menu-layout">
+      <div class="menu-content">
+        <div class="logo-area">
+          <div class="logo-ball"></div>
+          <h1 class="game-title">COLOR<span class="title-accent">MAZE</span></h1>
+          <p class="game-subtitle">Roll. Paint. Solve.</p>
+          <div id="player-identity-container" style="display: flex; align-items: center; gap: 8px; margin-top: 16px;">
+            <p style="color: var(--text-muted); font-size: 0.9rem; font-weight: 600;">Playing as:</p>
+            <span id="identity-span" style="color:var(--text-primary); font-size: 0.9rem; font-weight: 600;">...</span>
+            <button id="btn-edit-name" style="background: none; border: none; color: var(--accent-cyan); cursor: pointer; font-size: 0.8rem; padding: 2px;">✎</button>
+          </div>
+          <div id="name-edit-container" style="display: none; align-items: center; gap: 8px; margin-top: 16px;">
+            <input type="text" id="input-name" maxlength="12" style="background: var(--bg-card); border: 1px solid var(--accent-purple); color: white; padding: 6px 12px; border-radius: 4px; outline: none; font-family: 'Outfit'; font-weight: 600; font-size: 0.9rem; width: 140px;">
+            <button id="btn-save-name" style="background: var(--accent-gradient); border: none; color: white; cursor: pointer; padding: 6px 12px; border-radius: 4px; font-weight: 600; font-family: 'Outfit';">Save</button>
+          </div>
+        </div>
+        <button id="btn-play" class="btn btn-primary">
+          <span class="btn-icon">▶</span> Play
+        </button>
+        <button id="btn-levels" class="btn btn-secondary">
+          <span class="btn-icon">☰</span> Levels
+        </button>
+        <!-- Mobile-only leaderboard button -->
+        <button id="btn-leaderboard-mobile" class="btn btn-secondary lb-mobile-btn">
+          <span class="btn-icon">🏆</span> Leaderboard
+        </button>
+      </div>
+
+      <!-- Mobile Leaderboard Overlay -->
+      <div class="lb-overlay" id="lb-overlay"></div>
+
+      <!-- Leaderboard Panel (right side on desktop, modal on mobile) -->
+      <div class="leaderboard-panel" id="leaderboard-panel">
+        <button class="lb-close-btn" id="lb-close-btn">✕</button>
+        <div class="leaderboard-tabs">
+          <button class="lb-tab active" id="tab-records" data-tab="records">🏆 World Records</button>
+          <button class="lb-tab" id="tab-explorers" data-tab="explorers">🧭 Explorers</button>
+        </div>
+        <div class="leaderboard-body" id="leaderboard-body">
+          <div class="lb-loading" id="lb-loading">Loading leaderboard...</div>
+          <table class="lb-table" id="lb-table-records" style="display:none;">
+            <thead>
+              <tr><th>#</th><th>Player</th><th>Records</th></tr>
+            </thead>
+            <tbody id="lb-tbody-records"></tbody>
+          </table>
+          <table class="lb-table" id="lb-table-explorers" style="display:none;">
+            <thead>
+              <tr><th>#</th><th>Player</th><th>Discovered</th></tr>
+            </thead>
+            <tbody id="lb-tbody-explorers"></tbody>
+          </table>
+          <div class="lb-empty hidden" id="lb-empty">No data yet — be the first!</div>
+        </div>
+      </div>
+    </div>
+    <div class="menu-bg-particles"></div>
+  </div>
+
+  <div id="level-select-screen" class="screen">
+    <div class="level-select-content">
+      <h2 class="screen-title">Select Level</h2>
+      <div id="level-grid" class="level-grid"></div>
+      
+      <div class="level-pagination">
+        <button id="btn-page-prev" class="btn btn-secondary btn-small">← Prev</button>
+        <span id="page-indicator" class="page-indicator">Page 1</span>
+        <button id="btn-page-next" class="btn btn-secondary btn-small">Next →</button>
+      </div>
+
+      <button id="btn-back-menu" class="btn btn-secondary">Back to Menu</button>
+    </div>
+  </div>
+
+  <div id="hud" class="hud hidden">
+    <div class="hud-top">
+      <div class="hud-left">
+        <div class="hud-item" id="hud-moves">
+          <span class="hud-label">MOVES</span>
+          <span class="hud-value" id="move-count">0</span>
+        </div>
+      </div>
+      <div class="hud-center">
+        <div class="hud-item">
+          <span class="hud-label" id="level-name">Level 1</span>
+          <span id="level-discoverer" style="font-size: 0.65rem; color: var(--accent-cyan); font-weight: 600; text-transform: uppercase; margin-top: -2px; letter-spacing: 1px;"></span>
+          <div class="progress-bar-container">
+            <div class="progress-bar" id="progress-bar"></div>
+            <span class="progress-text" id="progress-text">0%</span>
+          </div>
+        </div>
+      </div>
+      <div class="hud-right">
+        <button id="btn-restart" class="hud-btn" title="Restart">↻</button>
+        <button id="btn-undo" class="hud-btn" title="Undo">↩</button>
+        <button id="btn-menu-return" class="hud-btn" title="Menu">✕</button>
+      </div>
+    </div>
+  </div>
+
+  <div id="win-screen" class="screen">
+    <div class="win-content">
+      <h2 class="win-title">Level Complete!</h2>
+      <div class="win-stars" id="win-stars">
+        <span class="star">★</span>
+        <span class="star">★</span>
+        <span class="star">★</span>
+      </div>
+
+      <!-- World Record Broken Banner -->
+      <div id="record-broken-banner" class="record-banner hidden">
+        <div class="record-banner-icon">🏆</div>
+        <div class="record-banner-text">
+          <span class="record-banner-title">NEW WORLD RECORD!</span>
+          <span class="record-banner-detail" id="record-broken-detail"></span>
+        </div>
+      </div>
+
+      <!-- First Discovery Banner (no record message needed) -->
+      <div id="first-discovery-banner" class="discovery-banner hidden">
+        <div class="record-banner-icon">🧭</div>
+        <div class="record-banner-text">
+          <span class="record-banner-title">PIONEER RECORD SET</span>
+          <span class="record-banner-detail">You're the first to complete this level — your score is the world record!</span>
+        </div>
+      </div>
+
+      <div class="win-stats">
+        <div class="stat">
+          <span class="stat-label">Moves</span>
+          <span class="stat-value" id="win-moves">0</span>
+        </div>
+        <div class="stat" style="opacity: 0.5;">
+          <span class="stat-label">Par</span>
+          <span class="stat-value" id="win-par">0</span>
+        </div>
+        <div class="stat" style="margin-left: 20px;">
+          <span class="stat-label" style="color: var(--accent-cyan);">World Record</span>
+          <span class="stat-value" id="win-record" style="color: var(--accent-cyan);">--</span>
+          <span id="win-record-holder" style="font-size: 0.65rem; color: var(--text-muted); margin-top: -5px;">Loading...</span>
+        </div>
+      </div>
+      <button id="btn-next" class="btn btn-primary">Next Level →</button>
+      <button id="btn-replay" class="btn btn-secondary btn-small">Replay</button>
+    </div>
+  </div>
+
+  <div id="stuck-screen" class="screen">
+    <div class="stuck-content">
+      <h2 class="stuck-title">Stuck!</h2>
+      <p class="stuck-text">No more moves available.</p>
+      <button id="btn-retry" class="btn btn-primary">Try Again</button>
+      <button id="btn-stuck-menu" class="btn btn-secondary btn-small">Menu</button>
+    </div>
+  </div>
+
+  <script type="module" src="/src/main.js"></script>
+</body>
+</html>
