@@ -727,6 +727,16 @@ document.getElementById("btn-next").addEventListener("click", () => {
   startLevel(currentLevelIndex + 1); // Always go to next since it's infinite!
 });
 
+document.getElementById("btn-win-menu").addEventListener("click", () => {
+  audio.playClick();
+  currentState = State.MENU;
+  input.disable();
+  showHUD(false);
+  ballRenderer.setVisible(false);
+  showScreen(menuScreen);
+  fetchLeaderboard();
+});
+
 document.getElementById("btn-replay").addEventListener("click", () => {
   audio.playClick();
   startLevel(currentLevelIndex);
