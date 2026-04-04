@@ -36,8 +36,7 @@ let moveCount = 0;
 let ballRow = 0;
 let ballCol = 0;
 
-// Undo stack: stores snapshots of (grid, ballRow, ballCol, moveCount, paintedCount)
-let undoStack = [];
+
 
 // Save data
 let saveData = loadSave();
@@ -245,7 +244,7 @@ async function startLevel(index) {
 
   // Reset state
   moveCount = 0;
-  undoStack = [];
+
   currentState = State.PLAYING;
 
   // Load grid
@@ -316,14 +315,7 @@ function executeMove(direction) {
     return;
   }
 
-  // Save undo state BEFORE moving
-  undoStack.push({
-    grid: grid.grid.map((r) => [...r]),
-    ballRow,
-    ballCol,
-    moveCount,
-    paintedCount: grid.paintedCount,
-  });
+
 
   currentState = State.ANIMATING;
   input.disable();
@@ -513,41 +505,7 @@ function handleStuck() {
   }, 500);
 }
 
-// ============================================
-// UNDO
-// ============================================
 
-function undoMove() {
-  if (undoStack.length === 0 || currentState !== State.PLAYING) return;
-
-  const snapshot = undoStack.pop();
-  const level = window.currentLevelData;
-
-  // Restore grid state
-  grid.grid = snapshot.grid;
-  grid.paintedCount = snapshot.paintedCount;
-  moveCount = snapshot.moveCount;
-  ballRow = snapshot.ballRow;
-  ballCol = snapshot.ballCol;
-
-  // Rebuild visual maze to match
-  mazeRenderer.buildMaze(level.grid, level.colors);
-
-  // Re-paint painted tiles
-  for (let r = 0; r < grid.rows; r++) {
-    for (let c = 0; c < grid.cols; c++) {
-      if (grid.grid[r][c] === CELL.PAINTED) {
-        mazeRenderer.paintTile(r, c, level.colors, 0);
-      }
-    }
-  }
-
-  // Move ball
-  ballRenderer.setPosition(ballRow, ballCol);
-
-  updateHUD();
-  audio.playClick();
-}
 
 // ============================================
 // LEADERBOARD
@@ -708,9 +666,7 @@ document.getElementById("btn-restart").addEventListener("click", () => {
   startLevel(currentLevelIndex);
 });
 
-document.getElementById("btn-undo").addEventListener("click", () => {
-  undoMove();
-});
+
 
 document.getElementById("btn-menu-return").addEventListener("click", () => {
   audio.playClick();
