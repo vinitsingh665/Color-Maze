@@ -108,8 +108,9 @@ export class LevelGenerator {
 
     while (queue.length > 0) {
       statesExplored++;
-      // Performance ceiling protection
-      if (statesExplored > 2000) return { solvable: false, reason: "timeout" };
+      // Performance ceiling protection — raised to 15000 to avoid
+      // false-negative rejections on legitimate larger grids
+      if (statesExplored > 15000) return { solvable: false, reason: "timeout" };
 
       const { r, c, p, moves } = queue.shift();
 
@@ -157,8 +158,13 @@ export class LevelGenerator {
     for (let i = 0; i < rows; i++) { grid[i][0] = 1; grid[i][cols - 1] = 1; }
     for (let j = 0; j < cols; j++) { grid[0][j] = 1; grid[rows - 1][j] = 1; }
 
-    for(let c = 1; c < cols - 1; c += 2) {
-       for(let r = 2; r < rows - 2; r++) { grid[r][c] = 1; }
+    for(let c = 2; c < cols - 1; c += 2) {
+       let isGapBottom = ((c / 2) % 2 !== 0);
+       let startR = isGapBottom ? 1 : 2;
+       let endR = isGapBottom ? rows - 2 : rows - 1;
+       for(let r = startR; r < endR; r++) { 
+         grid[r][c] = 1; 
+       }
     }
     grid[1][1] = 0;
     return { grid, par: cols };
@@ -175,8 +181,8 @@ export class LevelGenerator {
     const startTime = Date.now();
     let bestCandidate = null;
 
-    // Strict 100ms budget limit
-    while (Date.now() - startTime < 100) {
+    // Generation budget limit (500ms gives more room for quality levels)
+    while (Date.now() - startTime < 500) {
       let grid = this.generateCandidate(rows, cols);
       let result = this.solveLevel(grid);
 
@@ -196,6 +202,14 @@ export class LevelGenerator {
     // Fallback protection
     if (!bestCandidate) {
       console.log(`[Level ${levelIndex}] Gen failed constraints or timed out. Using fallback.`);
+      bestCandidate = this.getFallbackLevel(rows, cols);
+    }
+
+    // CRITICAL: Post-generation verification — never serve an unsolvable level.
+    // Re-verify the chosen candidate with the full solver to be absolutely sure.
+    const verification = this.solveLevel(bestCandidate.grid);
+    if (!verification.solvable) {
+      console.warn(`[Level ${levelIndex}] Post-gen verification FAILED! Using fallback.`);
       bestCandidate = this.getFallbackLevel(rows, cols);
     }
 

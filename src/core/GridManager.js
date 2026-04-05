@@ -137,26 +137,48 @@ export class GridManager {
   }
 
   /**
-   * Check if the player is stuck (has moves but all lead to only painted cells,
-   * and there are still unpainted cells)
+   * Check if the player is stuck — uses BFS to determine if ANY sequence
+   * of slides from the current position can reach an unpainted cell.
+   * If not, the player is permanently stuck.
    */
   isStuck(row, col) {
     if (this.isComplete()) return false;
     if (!this.hasAnyMove(row, col)) return true;
 
-    // Check if any reachable move leads to unpainted cells
+    // BFS over all reachable *stop positions* from current position
+    // At each stop, slide in all 4 directions. If any cell along ANY path
+    // is unpainted (EMPTY), we can still make progress → not stuck.
+    const visited = new Set();
+    const queue = [{ row, col }];
+    visited.add(`${row},${col}`);
+
     const directions = ["up", "down", "left", "right"];
-    for (const dir of directions) {
-      const result = this.getStopPosition(row, col, dir);
-      for (const cell of result.path) {
-        if (this.grid[cell.row][cell.col] === CELL.EMPTY) {
-          return false;
+
+    while (queue.length > 0) {
+      const pos = queue.shift();
+
+      for (const dir of directions) {
+        const result = this.getStopPosition(pos.row, pos.col, dir);
+        if (result.path.length === 0) continue;
+
+        // Check if any cell along this slide path is unpainted
+        for (const cell of result.path) {
+          if (this.grid[cell.row][cell.col] === CELL.EMPTY) {
+            return false; // Can still paint something → not stuck
+          }
+        }
+
+        // Even if this path is all painted, the stop position might
+        // open new slide directions we haven't explored yet
+        const key = `${result.row},${result.col}`;
+        if (!visited.has(key)) {
+          visited.add(key);
+          queue.push({ row: result.row, col: result.col });
         }
       }
     }
 
-    // All reachable paths are already painted — could still proceed
-    // Only truly stuck if there are unpainted cells AND can't reach them
-    return false;
+    // Exhausted all reachable positions — no unpainted cell is reachable
+    return true;
   }
 }

@@ -36,8 +36,16 @@ export default async function handler(req, res) {
     const existingLevel = await collection.findOne({ id: levelId });
 
     if (existingLevel) {
-      delete existingLevel._id; // Remove mongo id for client
-      return res.status(200).json(existingLevel);
+      // Verify the stored level is actually solvable (self-heal bad legacy data)
+      const verification = LevelGenerator.solveLevel(existingLevel.grid);
+      if (verification.solvable) {
+        delete existingLevel._id; // Remove mongo id for client
+        return res.status(200).json(existingLevel);
+      }
+      
+      // Bad level detected! Delete it so it gets regenerated below
+      console.warn(`[Level ${levelId}] Stored level failed solvability check — regenerating.`);
+      await collection.deleteOne({ id: levelId });
     }
 
     // 2. Player is the Frontier! Generate it natively.
