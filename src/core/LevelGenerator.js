@@ -25,16 +25,98 @@ export class LevelGenerator {
       grid[rows - 1][j] = 1;
     }
 
-    // Wall density varies per-call via the seeded RNG (0.12 to 0.22)
-    const density = 0.12 + rng() * 0.10;
-    let walls = Math.floor((rows * cols) * density); 
-    while (walls--) {
+    // Place random barrier lines instead of isolated dots.
+    // Line barriers create much better sliding challenges.
+    const numLines = Math.floor((rows * cols) * 0.05); 
+    for (let i = 0; i < numLines; i++) {
       let r = 1 + Math.floor(rng() * (rows - 2));
       let c = 1 + Math.floor(rng() * (cols - 2));
-      grid[r][c] = 1;
+      let isHoriz = rng() > 0.5;
+      let length = 1 + Math.floor(rng() * (Math.max(rows, cols) / 2)); // up to half board length
+      
+      for (let l = 0; l < length; l++) {
+        if (isHoriz && c + l < cols - 1) grid[r][c + l] = 1;
+        else if (!isHoriz && r + l < rows - 1) grid[r + l][c] = 1;
+      }
     }
 
     grid[1][1] = 0; // Ensure start is empty
+    return grid;
+  }
+
+  static carveLabyrinthCandidate(rows, cols, rng) {
+    // Start with a solid block of walls
+    let grid = Array(rows).fill(1).map(() => Array(cols).fill(1));
+    
+    // Recursive backtracker
+    let path = [{r: 1, c: 1}];
+    grid[1][1] = 0;
+    
+    const dr = [-1, 1, 0, 0];
+    const dc = [0, 0, -1, 1];
+    
+    let currentDir = -1;
+
+    while(path.length > 0) {
+       let current = path[path.length - 1];
+       
+       let validDirs = [];
+       for(let i=0; i<4; i++) {
+           let r2 = current.r + dr[i];
+           let c2 = current.c + dc[i];
+           
+           if(r2 > 0 && r2 < rows-1 && c2 > 0 && c2 < cols-1) {
+               // Must be an uncarved cell!
+               if(grid[r2][c2] === 0) continue;
+
+               // Must have exactly 1 carved orthogonal neighbor (the parent)
+               let carvedNeighbors = 0;
+               if(grid[r2-1][c2] === 0) carvedNeighbors++;
+               if(grid[r2+1][c2] === 0) carvedNeighbors++;
+               if(grid[r2][c2-1] === 0) carvedNeighbors++;
+               if(grid[r2][c2+1] === 0) carvedNeighbors++;
+               
+               // Limit diagonal carved neighbors to keep paths narrow and 1-thick
+               let diagNeighbors = 0;
+               if(grid[r2-1][c2-1] === 0) diagNeighbors++;
+               if(grid[r2-1][c2+1] === 0) diagNeighbors++;
+               if(grid[r2+1][c2-1] === 0) diagNeighbors++;
+               if(grid[r2+1][c2+1] === 0) diagNeighbors++;
+
+               if(carvedNeighbors === 1 && diagNeighbors <= 2) {
+                   validDirs.push(i);
+               }
+           }
+       }
+       
+       if(validDirs.length > 0) {
+           let choice = -1;
+           // 60% chance to maintain current direction for longer sliding paths
+           if (currentDir !== -1 && validDirs.includes(currentDir) && rng() < 0.6) {
+               choice = currentDir;
+           } else {
+               choice = validDirs[Math.floor(rng() * validDirs.length)];
+               currentDir = choice;
+           }
+           
+           let nextR = current.r + dr[choice];
+           let nextC = current.c + dc[choice];
+           grid[nextR][nextC] = 0;
+           path.push({r: nextR, c: nextC});
+       } else {
+           path.pop(); // Backtrack
+           currentDir = -1;
+       }
+    }
+    
+    // Punch a few random holes to create loops (so it isn't completely a strict tree)
+    let holes = Math.floor(rows * cols * 0.03);
+    for(let i = 0; i < holes; i++) {
+        let r = 1 + Math.floor(rng()*(rows-2));
+        let c = 1 + Math.floor(rng()*(cols-2));
+        grid[r][c] = 0;
+    }
+    
     return grid;
   }
 
@@ -121,8 +203,7 @@ export class LevelGenerator {
 
     while (queue.length > 0) {
       statesExplored++;
-      // Performance ceiling protection — raised to 15000 to avoid
-      // false-negative rejections on legitimate larger grids
+      // Performance ceiling protection
       if (statesExplored > 15000) return { solvable: false, reason: "timeout" };
 
       const { r, c, p, moves } = queue.shift();
@@ -154,6 +235,7 @@ export class LevelGenerator {
           const hash = getHash(newR, newC, nextP);
           if (!visited.has(hash)) {
             visited.add(hash);
+            // Optimization for deep mazes: greedy search by path length
             queue.push({ r: newR, c: newC, p: nextP, moves: moves + 1 });
           }
         }
@@ -167,7 +249,7 @@ export class LevelGenerator {
    * Generates a unique, guaranteed-solvable fallback level.
    * Uses levelIndex as seed so every level gets a distinct layout.
    */
-  static getFallbackLevel(rows, cols, levelIndex = 0) {
+  static getFallbackLevel(rows, cols, levelIndex = 0, suppressExtras = false) {
     let grid = Array(rows).fill(0).map(() => Array(cols).fill(0));
     for (let i = 0; i < rows; i++) { grid[i][0] = 1; grid[i][cols - 1] = 1; }
     for (let j = 0; j < cols; j++) { grid[0][j] = 1; grid[rows - 1][j] = 1; }
@@ -205,15 +287,17 @@ export class LevelGenerator {
       }
     }
 
-    // Sprinkle a few extra walls based on levelIndex for more variety
-    const rng = this.createRNG(levelIndex * 9973);
-    const extras = 1 + Math.floor(rng() * 3);
-    for (let i = 0; i < extras; i++) {
-      const r = 1 + Math.floor(rng() * (rows - 2));
-      const c = 1 + Math.floor(rng() * (cols - 2));
-      // Only place if it doesn't block the start
-      if (!(r === 1 && c === 1)) {
-        grid[r][c] = 1;
+    if (!suppressExtras) {
+      // Sprinkle a few extra walls based on levelIndex for more variety
+      const rng = this.createRNG(levelIndex * 9973);
+      const extras = 1 + Math.floor(rng() * 3);
+      for (let i = 0; i < extras; i++) {
+        const r = 1 + Math.floor(rng() * (rows - 2));
+        const c = 1 + Math.floor(rng() * (cols - 2));
+        // Only place if it doesn't block the start
+        if (!(r === 1 && c === 1)) {
+          grid[r][c] = 1;
+        }
       }
     }
 
@@ -222,65 +306,69 @@ export class LevelGenerator {
   }
 
   static generateLevel(levelIndex) {
+    const isHardTier = levelIndex >= 40;
     const difficultyProgress = Math.min((levelIndex - 10) / 90, 1.0);
 
-    // Shape variations — different aspect ratios so levels never
-    // look the same. Each shape is [rowsOffset, colsOffset] added
-    // to the base dimensions. Cycles by levelIndex for variety.
     const shapes = [
-      [0, 2],   // wide      (e.g. 7×10)
-      [2, 0],   // tall      (e.g. 9×8)
-      [1, 1],   // square-ish(e.g. 8×9)
-      [0, 4],   // very wide (e.g. 7×12)
-      [3, 1],   // tall+     (e.g. 10×9)
-      [1, 3],   // wide+     (e.g. 8×11)
-      [2, 2],   // square    (e.g. 9×10)
-      [0, 3],   // wide      (e.g. 7×11)
-      [3, 0],   // very tall (e.g. 10×8)
-      [1, 2],   // slightly wide (e.g. 8×10)
-      [2, 3],   // large rect (e.g. 9×11)
-      [4, 1],   // tall large (e.g. 11×9)
+      [0, 2],   // wide
+      [2, 0],   // tall
+      [1, 1],   // square-ish
+      [0, 4],   // very wide
+      [3, 1],   // tall+
+      [1, 3],   // wide+
+      [2, 2],   // square
+      [0, 3],   // wide
+      [3, 0],   // very tall
+      [1, 2],   // slightly wide
+      [2, 3],   // large rect
+      [4, 1],   // tall large
     ];
     const shape = shapes[levelIndex % shapes.length];
 
-    // Base size grows with difficulty: rows 7→8, cols 8→10
+    // Base size grows with difficulty
     const baseRows = 7 + Math.floor(difficultyProgress * 1.5);
     const baseCols = 8 + Math.floor(difficultyProgress * 2);
 
-    // Apply shape offset, clamped to reasonable bounds
-    const rows = Math.min(Math.max(baseRows + shape[0], 6), 13);
-    const cols = Math.min(Math.max(baseCols + shape[1], 7), 15);
+    let rows = Math.min(Math.max(baseRows + shape[0], 6), 13);
+    let cols = Math.min(Math.max(baseCols + shape[1], 7), 15);
     
-    // Minimum moves scale with area (more cells = more moves needed)
+    // For hard tier levels (>=40), keep dimensions compact but use carving
+    // Traps and dense winding paths provide difficulty without vast open space
+    if (isHardTier) {
+       rows = Math.min(rows, 10);
+       cols = Math.min(cols, 10);
+    }
+
     const area = rows * cols;
-    const minMoves = Math.max(3, Math.floor(area * 0.06));
+    // Hard tiers require significantly higher moves because of the dense maze
+    const minMoves = isHardTier 
+        ? Math.max(20, Math.floor(area * 0.25)) // Target 25+ moves!
+        : Math.max(3, Math.floor(area * 0.04));
 
     const startTime = Date.now();
     let bestCandidate = null;
-
-    // Create a seeded RNG unique to this levelIndex so each level
-    // explores a different region of the random space
     const rng = this.createRNG(levelIndex * 7919 + 31);
 
-    // Generation budget limit (500ms gives more room for quality levels)
-    while (Date.now() - startTime < 500) {
-      let grid = this.generateCandidate(rows, cols, rng);
+    // Generation budget. Harder levels get a tiny bit more leeway to search.
+    while (Date.now() - startTime < 800) {
+      let grid = isHardTier 
+         ? this.carveLabyrinthCandidate(rows, cols, rng)
+         : this.generateCandidate(rows, cols, rng);
+         
       let result = this.solveLevel(grid);
 
       if (result.solvable) {
-        // Is Good Level Filter
-        if (result.moves >= minMoves && result.branchingFactor <= 2.5) {
+        if (result.moves >= minMoves) {
            bestCandidate = { grid, par: result.moves };
            break; // Found perfect level
         }
-        // Save best acceptable just in case we don't find perfect
         if (!bestCandidate || result.moves > bestCandidate.par) {
            bestCandidate = { grid, par: result.moves };
         }
       }
     }
 
-    // Fallback protection — now unique per levelIndex
+    // Fallback protection 
     if (!bestCandidate) {
       console.log(`[Level ${levelIndex}] Gen failed constraints or timed out. Using fallback.`);
       bestCandidate = this.getFallbackLevel(rows, cols, levelIndex);
@@ -289,24 +377,11 @@ export class LevelGenerator {
     // CRITICAL: Post-generation verification — never serve an unsolvable level.
     const verification = this.solveLevel(bestCandidate.grid);
     if (!verification.solvable) {
-      console.warn(`[Level ${levelIndex}] Post-gen verification FAILED! Using fallback.`);
-      bestCandidate = this.getFallbackLevel(rows, cols, levelIndex);
-      // Verify fallback too — if extra walls broke it, strip them
-      const fbCheck = this.solveLevel(bestCandidate.grid);
-      if (!fbCheck.solvable) {
-        // Ultimate safe fallback: plain zigzag, no extras
-        let grid = Array(rows).fill(0).map(() => Array(cols).fill(0));
-        for (let i = 0; i < rows; i++) { grid[i][0] = 1; grid[i][cols - 1] = 1; }
-        for (let j = 0; j < cols; j++) { grid[0][j] = 1; grid[rows - 1][j] = 1; }
-        for (let c = 2; c < cols - 1; c += 2) {
-          let isGapBottom = ((c / 2) % 2 !== 0);
-          let startR = isGapBottom ? 1 : 2;
-          let endR = isGapBottom ? rows - 2 : rows - 1;
-          for (let r = startR; r < endR; r++) { grid[r][c] = 1; }
-        }
-        grid[1][1] = 0;
-        bestCandidate = { grid, par: cols };
-      }
+      console.warn(`[Level ${levelIndex}] Post-gen verification FAILED! Using ultimate safe fallback.`);
+      
+      // If the extras made it unsolvable, regenerate it with suppressExtras=true
+      // This preserves the structural variant (tall/wide/rotated zigzag) without failing reachability
+      bestCandidate = this.getFallbackLevel(rows, cols, levelIndex, true);
     }
 
     const hue = (levelIndex * 45 + Math.floor(rng() * 60)) % 360;
